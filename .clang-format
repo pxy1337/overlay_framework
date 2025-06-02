@@ -1,0 +1,21 @@
+BasedOnStyle: LLVM
+
+PointerAlignment: Left
+Cpp11BracedListStyle: 'false'
+ColumnLimit: 120
+
+AccessModifierOffset: -4
+IndentWidth: '4'
+
+IncludeBlocks: Preserve
+SortIncludes: Never
+
+NamespaceIndentation: All
+
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortLoopsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+
+KeepEmptyLinesAtEOF: false
+
+AllowShortLambdasOnASingleLine: Empty
