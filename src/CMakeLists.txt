@@ -7,7 +7,7 @@ add_library(overlay STATIC
     utility.hpp
     ${PUBLIC_HEADER_LIST})
 
-target_link_libraries(overlay PRIVATE fmt::fmt d2d1)
+target_link_libraries(overlay PRIVATE fmt::fmt d2d1 dwmapi dwrite)
 target_include_directories(overlay PUBLIC ../include)
 target_compile_features(overlay PUBLIC cxx_std_23)
 set_target_properties(overlay PROPERTIES
