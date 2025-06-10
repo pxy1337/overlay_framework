@@ -4,6 +4,7 @@ cmake_minimum_required(VERSION 3.25...4.0)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_EXAMPLE "Build example" OFF)
+option(BUILD_TESTS "Build tests" OFF)
 
 set(default_build_type "Release")
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -32,8 +33,19 @@ FetchContent_Declare(
   GIT_TAG v3.11.3)
 FetchContent_MakeAvailable(json)
 
+FetchContent_Declare(
+  Catch2
+  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+  GIT_TAG        v3.8.1
+)
+FetchContent_MakeAvailable(Catch2)
+
 add_subdirectory(src)
 
+if(BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
+
 if(BUILD_EXAMPLE)
-  add_subdirectory(example)
+    add_subdirectory(example)
 endif()

@@ -4,6 +4,8 @@
 
 #include "utility.hpp"
 
+#include <chrono>
+
 namespace overlay_framework {
     overlay_t::overlay_t(const overlay_config_t& config) : m_overlay_config(config) {
         m_instance_handle = GetModuleHandle(nullptr);
@@ -11,7 +13,7 @@ namespace overlay_framework {
         WNDCLASSEX wc{};
         wc.cbSize = sizeof(WNDCLASSEX);
         wc.style = CS_HREDRAW | CS_VREDRAW;
-        wc.lpfnWndProc = StaticWndProc;
+        wc.lpfnWndProc = s_wnd_proc;
         wc.cbClsExtra = 0;
         wc.cbWndExtra = 0;
         wc.hInstance = m_instance_handle;
@@ -35,7 +37,7 @@ namespace overlay_framework {
         MARGINS margins = { -1, -1, -1, -1 }; // ?, not sure
         DwmExtendFrameIntoClientArea(m_window_handle, &margins);
 
-        ShowWindow(m_window_handle, 5);
+        ShowWindow(m_window_handle, SW_SHOW);
         UpdateWindow(m_window_handle);
 
         SetLayeredWindowAttributes(m_window_handle, 0x000000, 255, LWA_ALPHA);
@@ -67,20 +69,20 @@ namespace overlay_framework {
         return true;
     }
 
-    LRESULT CALLBACK overlay_t::StaticWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    LRESULT CALLBACK overlay_t::s_wnd_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         if (uMsg == WM_CREATE) {
-            LPCREATESTRUCT pCreate = reinterpret_cast<LPCREATESTRUCT>(lParam);
-            SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pCreate->lpCreateParams));
+            LPCREATESTRUCT create_param = reinterpret_cast<LPCREATESTRUCT>(lParam);
+            SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create_param->lpCreateParams));
         }
 
-        overlay_t* ov = reinterpret_cast<overlay_t*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
-        if (ov)
-            return ov->WndProc(hwnd, uMsg, wParam, lParam);
+        if (overlay_t* ov = reinterpret_cast<overlay_t*>(GetWindowLongPtr(hwnd, GWLP_USERDATA))) {
+            return ov->wnd_proc(hwnd, uMsg, wParam, lParam);
+        }
 
         return DefWindowProc(hwnd, uMsg, wParam, lParam);
     }
 
-    LRESULT overlay_t::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    LRESULT overlay_t::wnd_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         switch (msg) {
         case WM_SIZE:
             if (m_render_target) {
@@ -102,8 +104,13 @@ namespace overlay_framework {
             return 0;
         case WM_PAINT:
             if (!m_render_target) {
-                initialize_direct2d(hWnd);
+                const auto direct2d_initialized = initialize_direct2d(hWnd);
+                if (!direct2d_initialized) {
+                    MessageBoxA(nullptr, direct2d_initialized.error().c_str(), "[Error]", MB_OK);
+                }
             }
+
+            const auto start_timestamp = std::chrono::high_resolution_clock::now();
 
             m_render_target->BeginDraw();
             m_render_target->Clear(D2D1::ColorF(D2D1::ColorF::Black, 0.f));
@@ -114,19 +121,25 @@ namespace overlay_framework {
 
             const auto hr = m_render_target->EndDraw();
             if (FAILED(hr) || hr == D2DERR_RECREATE_TARGET) {
-                // TODO
-                MessageBoxA(nullptr, "render_target->EndDraw", "[WndProc::Error]", MB_OK);
+                // TODO: Recreate target
+                MessageBoxA(nullptr, "render_target->EndDraw() == D2DERR_RECREATE_TARGET", "[Error]", MB_OK);
             }
+
+            const auto end_timestamp = std::chrono::high_resolution_clock::now();
+
+            const auto duration = std::chrono::duration<float, std::milli>(end_timestamp - start_timestamp);
+
+            m_frame_time = duration.count();
 
             return 0;
         }
         return DefWindowProc(hWnd, msg, wParam, lParam);
     }
 
-    bool overlay_t::initialize_direct2d(HWND hwnd) {
+    std::expected<void, std::string> overlay_t::initialize_direct2d(HWND hwnd) {
         HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &m_d2d_factory);
         if (FAILED(hr)) {
-            throw std::runtime_error("D2D1CreateFactory failed");
+            return std::unexpected("D2D1CreateFactory failed");
         }
 
 #pragma clang diagnostic ignored "-Wlanguage-extension-token"
@@ -134,64 +147,76 @@ namespace overlay_framework {
                                  reinterpret_cast<IUnknown**>(&m_dwrite_factory));
 #pragma clang diagnostic warning "-Wlanguage-extension-token"
         if (FAILED(hr)) {
-            throw std::runtime_error("DWriteCreateFactory failed");
+            return std::unexpected("DWriteCreateFactory failed");
         }
 
         RECT rc{};
-        GetClientRect(hwnd, &rc);
+        if (!GetClientRect(hwnd, &rc)) {
+            return std::unexpected(fmt::format("Couldn't retrieve client rect: 0x{:X}", GetLastError()));
+        }
         D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
+
+        const auto direct2d_vsync =
+            m_overlay_config.vsync ? D2D1_PRESENT_OPTIONS_NONE : D2D1_PRESENT_OPTIONS_IMMEDIATELY;
 
         hr = m_d2d_factory->CreateHwndRenderTarget(
             D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT,
                                          D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED)),
-            D2D1::HwndRenderTargetProperties(hwnd, size, D2D1_PRESENT_OPTIONS_IMMEDIATELY), &m_render_target);
+            D2D1::HwndRenderTargetProperties(hwnd, size, direct2d_vsync), &m_render_target);
         if (FAILED(hr)) {
-            throw std::runtime_error(fmt::format("CreateHwndRenderTarget failed: 0x{:X}", hr));
+            return std::unexpected(fmt::format("CreateHwndRenderTarget failed: 0x{:X}", hr));
         }
 
         const D2D1_COLOR_F color = D2D1::ColorF(1.f, 1.f, 1.f, 1.f);
         hr = m_render_target->CreateSolidColorBrush(color, &m_brush);
         if (FAILED(hr)) {
-            throw std::runtime_error("CreateSolidColorBrush failed");
+            return std::unexpected("CreateSolidColorBrush failed");
         }
 
         hr =
             m_dwrite_factory->CreateTextFormat(L"Verdana Bold", NULL, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
                                                DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"en-us", &m_verdana_bold);
         if (FAILED(hr)) {
-            throw std::runtime_error(fmt::format("CreateTextFormat failed: 0x{:X}", GetLastError()));
+            return std::unexpected(fmt::format("CreateTextFormat failed: 0x{:X}", GetLastError()));
         }
 
         hr = m_dwrite_factory->CreateTextFormat(L"Verdana", NULL, DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STYLE_NORMAL,
                                                 DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"en-us", &m_verdana_regular);
         if (FAILED(hr)) {
-            throw std::runtime_error(fmt::format("CreateTextFormat failed: 0x{:X}", GetLastError()));
+            return std::unexpected(fmt::format("CreateTextFormat failed: 0x{:X}", GetLastError()));
         }
 
         hr = m_verdana_bold->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         if (FAILED(hr)) {
-            throw std::runtime_error("SetTextAlignment failed");
+            return std::unexpected("SetTextAlignment failed");
         }
 
-        // hr = m_verdana_bold->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        hr = m_verdana_regular->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        if (FAILED(hr)) {
+            return std::unexpected("SetTextAlignment failed");
+        }
+
+        // hr =
+        // m_verdana_bold->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         // if (FAILED(hr)) {
-        //     throw std::runtime_error("SetParagraphAlignment failed");
+        //     return std::unexpected("SetParagraphAlignment failed");
         // }
 
         // m_render_target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
         m_render_target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_ALIASED);
         m_render_target->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
 
-        return true;
+        return {};
     }
 
     void overlay_t::cleanup_direct2d() {
-        utility::safe_release(&m_render_target);
-        utility::safe_release(&m_d2d_factory);
-        utility::safe_release(&m_brush);
-        utility::safe_release(&m_dwrite_factory);
-        utility::safe_release(&m_verdana_regular);
-        utility::safe_release(&m_verdana_bold);
+        using namespace utility;
+        safe_release(&m_render_target);
+        safe_release(&m_d2d_factory);
+        safe_release(&m_brush);
+        safe_release(&m_dwrite_factory);
+        safe_release(&m_verdana_regular);
+        safe_release(&m_verdana_bold);
     }
 
     void overlay_t::draw_rect_filled(int x, int y, int w, int h, int r, int g, int b, int a) {
@@ -205,6 +230,20 @@ namespace overlay_framework {
         m_brush->SetColor(old_color);
     }
 
+    void overlay_t::draw_rect_filled(const math::vec2_t<int32_t>& position, const math::vec2_t<int32_t>& size,
+                                     const color_t& color) {
+        const auto old_color = m_brush->GetColor();
+
+        m_brush->SetColor(color.to_direct2d());
+
+        m_render_target->FillRectangle(D2D1_RECT_F{ static_cast<float>(position.x), static_cast<float>(position.y),
+                                                    static_cast<float>(position.x) + static_cast<float>(size.x),
+                                                    static_cast<float>(position.y) + static_cast<float>(size.y) },
+                                       m_brush);
+
+        m_brush->SetColor(old_color);
+    }
+
     IDWriteTextFormat* overlay_t::get_verdana_regular() {
         return m_verdana_regular;
     }
@@ -213,9 +252,24 @@ namespace overlay_framework {
         return m_verdana_bold;
     }
 
+    uint32_t overlay_t::get_width() const {
+        return m_width;
+    }
+
+    uint32_t overlay_t::get_height() const {
+        return m_height;
+    }
+
+    std::pair<uint32_t, uint32_t> overlay_t::get_size() const {
+        return { m_width, m_height };
+    }
+
+    float overlay_t::get_frame_time() const {
+        return m_frame_time;
+    }
+
     void overlay_t::draw_text(const std::string& text, int x, int y, int r, int g, int b, int a, bool centered,
                               IDWriteTextFormat* font) {
-        // probably shouldnt add this overhead and just make the user think
         const auto old_color = m_brush->GetColor();
 
         m_brush->SetColor(D2D1_COLOR_F{ (float)r / 255.f, (float)g / 255.f, (float)b / 255.f, (float)a / 255.f });
