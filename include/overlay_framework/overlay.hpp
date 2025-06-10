@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <expected>
 
 #include <windows.h>
 #include <d2d1.h>
@@ -31,10 +30,10 @@ namespace overlay_framework {
 
     public:
         // Get public informations about the overlay
-        uint32_t get_width() const;
-        uint32_t get_height() const;
-        std::pair<uint32_t, uint32_t> get_size() const;
-        float get_frame_time() const;
+        [[nodiscard]] uint32_t get_width() const;
+        [[nodiscard]] uint32_t get_height() const;
+        [[nodiscard]] std::pair<uint32_t, uint32_t> get_size() const;
+        [[nodiscard]] float get_frame_time() const;
 
         // Public render functions
         void draw_rect_filled(int x, int y, int w, int h, int r, int g, int b, int a);
