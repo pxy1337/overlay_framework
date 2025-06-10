@@ -22,8 +22,10 @@ int main() {
             const auto offset = 25;
 
             ov->draw_text("hi :3", pt.x - offset, pt.y - offset, 255, 255, 255, 255, true);
+
             // TODO: bring back support for choosing fonts
-            ov->draw_text("bye :(", pt.x + offset, pt.y + offset, 255, 255, 255, 255, true);
+            const auto position = of::math::vec2_t<int32_t>{ pt.x, pt.y } + offset;
+            ov->draw_text("bye :(", position, of::colors::white, true);
         }
 
         // draw frame time
@@ -34,12 +36,22 @@ int main() {
 
         // draw geometry
         {
+            auto position = of::math::vec2_t<int32_t>{ 50, 50 };
+            const auto size = of::math::vec2_t<int32_t>{ 50, 50 };
+            const auto red = 255u;
+            const auto green = 0u;
+            const auto blue = 0u;
+            const auto alpha = 150u;
+
             // simple
-            ov->draw_rect_filled(50, 50, 50, 50, 255, 0, 0, 150);
+            ov->draw_rect_filled(position.x, position.y, size.x, size.y, red, green, blue, alpha);
+            position.y += 100;
 
             // new
-            ov->draw_rect_filled({ 50, 150 }, { 50, 50 }, { 255, 0, 0, 150 });
-            ov->draw_rect_filled({ 50, 250 }, { 50, 50 }, of::predefined_colors::blue);
+            ov->draw_rect_filled(position, size, { red, green, blue, alpha });
+            position.y += 100;
+
+            ov->draw_rect_filled(position, size, of::colors::blue);
         }
 
         /* place more code here */

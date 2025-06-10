@@ -4,7 +4,6 @@
 
 #include <fmt/core.h>
 
-
 namespace overlay_framework {
     overlay_t::overlay_t(const overlay_config_t& config) : m_overlay_config(config) {
         m_instance_handle = GetModuleHandle(nullptr);
@@ -140,8 +139,8 @@ namespace overlay_framework {
 
         m_direct2d.get_brush()->SetColor(D2D1_COLOR_F{ r / 255.f, g / 255.f, b / 255.f, a / 255.f });
 
-        m_direct2d.get_render_target()->FillRectangle(D2D1_RECT_F{ (float)x, (float)y, (float)x + (float)w, (float)y + (float)h },
-                                       m_direct2d.get_brush());
+        m_direct2d.get_render_target()->FillRectangle(
+            D2D1_RECT_F{ (float)x, (float)y, (float)x + (float)w, (float)y + (float)h }, m_direct2d.get_brush());
 
         m_direct2d.get_brush()->SetColor(old_color);
     }
@@ -152,10 +151,11 @@ namespace overlay_framework {
 
         m_direct2d.get_brush()->SetColor(color.to_direct2d());
 
-        m_direct2d.get_render_target()->FillRectangle(D2D1_RECT_F{ static_cast<float>(position.x), static_cast<float>(position.y),
-                                                    static_cast<float>(position.x) + static_cast<float>(size.x),
-                                                    static_cast<float>(position.y) + static_cast<float>(size.y) },
-                                       m_direct2d.get_brush());
+        m_direct2d.get_render_target()->FillRectangle(
+            D2D1_RECT_F{ static_cast<float>(position.x), static_cast<float>(position.y),
+                         static_cast<float>(position.x) + static_cast<float>(size.x),
+                         static_cast<float>(position.y) + static_cast<float>(size.y) },
+            m_direct2d.get_brush());
 
         m_direct2d.get_brush()->SetColor(old_color);
     }
@@ -168,7 +168,7 @@ namespace overlay_framework {
         return m_height;
     }
 
-    std::pair<uint32_t, uint32_t> overlay_t::get_size() const {
+    math::vec2_t<uint32_t> overlay_t::get_size() const {
         return { m_width, m_height };
     }
 
@@ -178,9 +178,11 @@ namespace overlay_framework {
 
     void overlay_t::draw_text(const std::string& text, int x, int y, int r, int g, int b, int a, bool centered,
                               IDWriteTextFormat* font) {
-        const auto old_color = m_direct2d.get_brush()->GetColor();
+        const auto brush = m_direct2d.get_brush();
 
-        m_direct2d.get_brush()->SetColor(D2D1_COLOR_F{ (float)r / 255.f, (float)g / 255.f, (float)b / 255.f, (float)a / 255.f });
+        const auto old_color = brush->GetColor();
+
+        brush->SetColor(D2D1_COLOR_F{ (float)r / 255.f, (float)g / 255.f, (float)b / 255.f, (float)a / 255.f });
 
         std::wstring wstr(text.begin(), text.end());
 
@@ -192,8 +194,8 @@ namespace overlay_framework {
 
         if (centered) {
             IDWriteTextLayout* text_layout = nullptr;
-            HRESULT hr =
-                m_direct2d.get_dwrite_factory()->CreateTextLayout(wstr.c_str(), wstr.size(), font, m_width, m_height, &text_layout);
+            HRESULT hr = m_direct2d.get_dwrite_factory()->CreateTextLayout(wstr.c_str(), wstr.size(), font, m_width,
+                                                                           m_height, &text_layout);
 
             if (SUCCEEDED(hr)) {
                 DWRITE_TEXT_METRICS metrics;
@@ -208,8 +210,47 @@ namespace overlay_framework {
             rect = { float(x), float(y), 2560, 1440 };
         }
 
-        m_direct2d.get_render_target()->DrawTextW(wstr.c_str(), wstr.size(), font, rect, m_direct2d.get_brush());
+        m_direct2d.get_render_target()->DrawTextW(wstr.c_str(), wstr.size(), font, rect, brush);
 
-        m_direct2d.get_brush()->SetColor(old_color);
+        brush->SetColor(old_color);
+    }
+
+    void overlay_t::draw_text(const std::string& text, const math::vec2_t<int32_t>& position, const color_t& color,
+                              bool centered, IDWriteTextFormat* font) {
+        const auto brush = m_direct2d.get_brush();
+
+        const auto old_color = brush->GetColor();
+
+        brush->SetColor(color.to_direct2d());
+
+        std::wstring wstr(text.begin(), text.end());
+
+        if (!font) {
+            font = m_direct2d.get_verdana_bold();
+        }
+
+        D2D1_RECT_F rect;
+
+        if (centered) {
+            IDWriteTextLayout* text_layout = nullptr;
+            HRESULT hr = m_direct2d.get_dwrite_factory()->CreateTextLayout(wstr.c_str(), wstr.size(), font, m_width,
+                                                                           m_height, &text_layout);
+
+            if (SUCCEEDED(hr)) {
+                DWRITE_TEXT_METRICS metrics;
+                text_layout->GetMetrics(&metrics);
+
+                rect = { position.x - metrics.width / 2.0f, position.y - metrics.height / 2.0f,
+                         position.x + metrics.width / 2.0f, position.y + metrics.height / 2.0f };
+
+                text_layout->Release();
+            }
+        } else {
+            rect = { float(position.x), float(position.y), 2560, 1440 };
+        }
+
+        m_direct2d.get_render_target()->DrawTextW(wstr.c_str(), wstr.size(), font, rect, brush);
+
+        brush->SetColor(old_color);
     }
 } // namespace overlay_framework

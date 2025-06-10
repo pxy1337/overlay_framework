@@ -35,7 +35,7 @@ namespace overlay_framework {
         uint8_t a{};
     };
 
-    namespace predefined_colors {
+    namespace colors {
         const inline static color_t red(255, 0, 0);
         const inline static color_t green(0, 255, 0);
         const inline static color_t blue(0, 0, 255);

@@ -225,8 +225,8 @@ TEST_CASE("color_t to_direct2d", "[color_t][to_direct2d]") {
     }
 }
 
-TEST_CASE("predefined_colors", "[color_t][predefined]") {
-    using namespace predefined_colors;
+TEST_CASE("Predefined colors", "[color_t][predefined]") {
+    using namespace colors;
 
     SECTION("Red color") {
         REQUIRE(red.r == 255);

@@ -32,15 +32,18 @@ namespace overlay_framework {
         // Get public informations about the overlay
         [[nodiscard]] uint32_t get_width() const;
         [[nodiscard]] uint32_t get_height() const;
-        [[nodiscard]] std::pair<uint32_t, uint32_t> get_size() const;
+        [[nodiscard]] math::vec2_t<uint32_t> get_size() const;
         [[nodiscard]] float get_frame_time() const;
 
         // Public render functions
         void draw_rect_filled(int x, int y, int w, int h, int r, int g, int b, int a);
         void draw_rect_filled(const math::vec2_t<int32_t>& position, const math::vec2_t<int32_t>& size,
                               const color_t& color);
+
         void draw_text(const std::string& text, int x, int y, int r, int g, int b, int a, bool centered,
                        IDWriteTextFormat* font = nullptr);
+        void draw_text(const std::string& text, const math::vec2_t<int32_t>& position, const color_t& color,
+                       bool centered, IDWriteTextFormat* font = nullptr);
 
     private:
         // Desc: Window related functions
