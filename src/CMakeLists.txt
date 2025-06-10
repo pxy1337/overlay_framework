@@ -1,7 +1,8 @@
 add_library(overlay STATIC
     overlay.cpp
     utility.cpp
-    direct2d.cpp)
+    direct2d.cpp
+    window.cpp)
 
 target_link_libraries(overlay PRIVATE fmt::fmt d2d1 dwmapi dwrite)
 target_include_directories(overlay PUBLIC ../include)

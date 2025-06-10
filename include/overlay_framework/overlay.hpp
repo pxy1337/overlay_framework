@@ -13,6 +13,7 @@
 #include "math.hpp"
 #include "direct2d.hpp"
 #include "config.hpp"
+#include "window.hpp"
 
 namespace overlay_framework {
     class overlay_t {
@@ -23,6 +24,8 @@ namespace overlay_framework {
         // Remove copy constructor/assign operator
         overlay_t(const overlay_t&) = delete;
         overlay_t& operator=(const overlay_t&) = delete;
+
+        friend class window_t;
 
     public:
         using callback_t = void (*)(overlay_t*);
@@ -46,25 +49,17 @@ namespace overlay_framework {
                        bool centered, IDWriteTextFormat* font = nullptr);
 
     private:
-        // Desc: Window related functions
-        // TODO: Move to separate class
-        bool process_messages();
-        static LRESULT CALLBACK s_wnd_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-        LRESULT wnd_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+        LRESULT window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     private:
         overlay_config_t m_overlay_config{};
-        HINSTANCE m_instance_handle{};
-        HWND m_window_handle{};
 
         direct2d_resources_t m_direct2d{};
+        window_t m_window{};
 
         bool m_is_initialized{};
         bool m_is_running{};
         callback_t m_on_paint_callback{};
-
-        uint32_t m_width{};
-        uint32_t m_height{};
 
         float m_frame_time{};
     };

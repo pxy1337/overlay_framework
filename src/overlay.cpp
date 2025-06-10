@@ -6,81 +6,25 @@
 
 namespace overlay_framework {
     overlay_t::overlay_t(const overlay_config_t& config) : m_overlay_config(config) {
-        m_instance_handle = GetModuleHandle(nullptr);
-
-        WNDCLASSEX wc{};
-        wc.cbSize = sizeof(WNDCLASSEX);
-        wc.style = CS_HREDRAW | CS_VREDRAW;
-        wc.lpfnWndProc = s_wnd_proc;
-        wc.cbClsExtra = 0;
-        wc.cbWndExtra = 0;
-        wc.hInstance = m_instance_handle;
-        wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-        wc.hbrBackground = (HBRUSH)(RGB(0, 0, 0));
-        wc.lpszMenuName = NULL;
-        wc.lpszClassName = m_overlay_config.window_class_name.c_str();
-        wc.hIconSm = LoadIcon(NULL, IDI_APPLICATION);
-        RegisterClassEx(&wc);
-
-        const auto ex_style = WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW;
-
-        m_width = GetSystemMetrics(SM_CXSCREEN);
-        m_height = GetSystemMetrics(SM_CYSCREEN);
-
-        m_window_handle =
-            CreateWindowEx(ex_style, m_overlay_config.window_class_name.c_str(), m_overlay_config.window_name.c_str(),
-                           WS_POPUP, 0, 0, m_width, m_height, NULL, NULL, wc.hInstance, this);
-
-        MARGINS margins = { -1, -1, -1, -1 }; // ?, not sure
-        DwmExtendFrameIntoClientArea(m_window_handle, &margins);
-
-        ShowWindow(m_window_handle, SW_SHOW);
-        UpdateWindow(m_window_handle);
-
-        SetLayeredWindowAttributes(m_window_handle, 0x000000, 255, LWA_ALPHA);
-
+        const auto window_initialized = m_window.initialize(this, config.window_name, config.window_class_name);
+        if (!window_initialized) {
+            MessageBoxA(nullptr, window_initialized.error().c_str(), "[Error]", MB_OK | MB_ICONERROR);
+            return;
+        }
         m_is_initialized = true;
     }
 
-    overlay_t::~overlay_t() {
-        DestroyWindow(m_window_handle);
-        UnregisterClass(m_overlay_config.window_class_name.c_str(), m_instance_handle);
-    }
+    overlay_t::~overlay_t() {}
 
     void overlay_t::run(callback_t on_paint_callback) {
         m_is_running = true;
         m_on_paint_callback = on_paint_callback;
 
-        while (m_is_running && process_messages()) {
+        while (m_is_running && m_window.process_messages()) {
         }
     }
 
-    bool overlay_t::process_messages() {
-        MSG msg{};
-        while (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-            if (msg.message == WM_QUIT)
-                return false;
-        }
-        return true;
-    }
-
-    LRESULT CALLBACK overlay_t::s_wnd_proc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-        if (uMsg == WM_CREATE) {
-            LPCREATESTRUCT create_param = reinterpret_cast<LPCREATESTRUCT>(lParam);
-            SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create_param->lpCreateParams));
-        }
-
-        if (overlay_t* ov = reinterpret_cast<overlay_t*>(GetWindowLongPtr(hwnd, GWLP_USERDATA))) {
-            return ov->wnd_proc(hwnd, uMsg, wParam, lParam);
-        }
-
-        return DefWindowProc(hwnd, uMsg, wParam, lParam);
-    }
-
-    LRESULT overlay_t::wnd_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    LRESULT overlay_t::window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         switch (msg) {
         case WM_SIZE:
             if (m_direct2d.get_render_target()) {
@@ -90,8 +34,8 @@ namespace overlay_framework {
                 D2D1_SIZE_U size = D2D1::SizeU(rc.right, rc.bottom);
                 m_direct2d.get_render_target()->Resize(size);
 
-                m_width = size.width;
-                m_height = size.height;
+                const auto new_size = math::vec2_t<uint32_t>(size.width, size.height);
+                m_window.set_size(new_size);
 
                 InvalidateRect(hWnd, NULL, FALSE);
             }
@@ -104,7 +48,7 @@ namespace overlay_framework {
             if (!m_direct2d.get_render_target()) {
                 const auto direct2d_initialized = m_direct2d.initialize(hWnd, m_overlay_config.vsync);
                 if (!direct2d_initialized) {
-                    MessageBoxA(nullptr, direct2d_initialized.error().c_str(), "[Error]", MB_OK);
+                    MessageBoxA(nullptr, direct2d_initialized.error().c_str(), "[Error]", MB_OK | MB_ICONERROR);
                 }
             }
 
@@ -120,7 +64,7 @@ namespace overlay_framework {
             const auto hr = m_direct2d.get_render_target()->EndDraw();
             if (FAILED(hr) || hr == D2DERR_RECREATE_TARGET) {
                 // TODO: Recreate target
-                MessageBoxA(nullptr, "render_target->EndDraw() == D2DERR_RECREATE_TARGET", "[Error]", MB_OK);
+                DebugBreak();
             }
 
             const auto end_timestamp = std::chrono::high_resolution_clock::now();
@@ -161,15 +105,15 @@ namespace overlay_framework {
     }
 
     uint32_t overlay_t::get_width() const {
-        return m_width;
+        return m_window.get_width();
     }
 
     uint32_t overlay_t::get_height() const {
-        return m_height;
+        return m_window.get_height();
     }
 
     math::vec2_t<uint32_t> overlay_t::get_size() const {
-        return { m_width, m_height };
+        return m_window.get_size();
     }
 
     float overlay_t::get_frame_time() const {
@@ -194,8 +138,9 @@ namespace overlay_framework {
 
         if (centered) {
             IDWriteTextLayout* text_layout = nullptr;
-            HRESULT hr = m_direct2d.get_dwrite_factory()->CreateTextLayout(wstr.c_str(), wstr.size(), font, m_width,
-                                                                           m_height, &text_layout);
+            const auto overlay_size = get_size();
+            HRESULT hr = m_direct2d.get_dwrite_factory()->CreateTextLayout(
+                wstr.c_str(), wstr.size(), font, overlay_size.x, overlay_size.y, &text_layout);
 
             if (SUCCEEDED(hr)) {
                 DWRITE_TEXT_METRICS metrics;
@@ -233,8 +178,9 @@ namespace overlay_framework {
 
         if (centered) {
             IDWriteTextLayout* text_layout = nullptr;
-            HRESULT hr = m_direct2d.get_dwrite_factory()->CreateTextLayout(wstr.c_str(), wstr.size(), font, m_width,
-                                                                           m_height, &text_layout);
+            const auto overlay_size = get_size();
+            HRESULT hr = m_direct2d.get_dwrite_factory()->CreateTextLayout(
+                wstr.c_str(), wstr.size(), font, overlay_size.x, overlay_size.y, &text_layout);
 
             if (SUCCEEDED(hr)) {
                 DWRITE_TEXT_METRICS metrics;

@@ -17,8 +17,10 @@ namespace overlay_framework {
         ~direct2d_resources_t() {
             cleanup();
         }
+
         direct2d_resources_t(const direct2d_resources_t&) = delete;
         direct2d_resources_t& operator=(const direct2d_resources_t&) = delete;
+
         direct2d_resources_t(direct2d_resources_t&&) noexcept = default;
         direct2d_resources_t& operator=(direct2d_resources_t&&) noexcept = default;
 
