@@ -1,11 +1,7 @@
-file(GLOB PUBLIC_HEADER_LIST CONFIGURE_DEPENDS
-    "${overlay_framework_SOURCE_DIR}include/src/*.hpp")
-
 add_library(overlay STATIC
     overlay.cpp
     utility.cpp
-    utility.hpp
-    ${PUBLIC_HEADER_LIST})
+    direct2d.cpp)
 
 target_link_libraries(overlay PRIVATE fmt::fmt d2d1 dwmapi dwrite)
 target_include_directories(overlay PUBLIC ../include)

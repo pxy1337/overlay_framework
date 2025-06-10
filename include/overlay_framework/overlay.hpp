@@ -12,18 +12,10 @@
 
 #include "color.hpp"
 #include "math.hpp"
+#include "direct2d.hpp"
+#include "config.hpp"
 
 namespace overlay_framework {
-    struct overlay_config_t {
-        std::wstring window_name{ L"OverlayWindow" };
-        std::wstring window_class_name{ L"OverlayWindowClass" };
-        bool vsync{ false };
-    };
-
-    class overlay_t;
-
-    using callback_t = void (*)(overlay_t*);
-
     class overlay_t {
     public:
         overlay_t(const overlay_config_t& overlay_config = overlay_config_t());
@@ -34,16 +26,10 @@ namespace overlay_framework {
         overlay_t& operator=(const overlay_t&) = delete;
 
     public:
+        using callback_t = void (*)(overlay_t*);
         void run(callback_t on_paint_callback = nullptr);
 
     public:
-        // Desc: Get 'desired' font
-        // Note: there is no way to request custom fonts
-        // TODO: add and option to request custom fonts
-        // and a better api for the entire font system
-        IDWriteTextFormat* get_verdana_regular();
-        IDWriteTextFormat* get_verdana_bold();
-
         // Get public informations about the overlay
         uint32_t get_width() const;
         uint32_t get_height() const;
@@ -65,24 +51,11 @@ namespace overlay_framework {
         LRESULT wnd_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     private:
-        // Desc: Direct2D/DWrite functions
-        // TODO: Move to separate class
-        std::expected<void, std::string> initialize_direct2d(HWND hwnd);
-        void cleanup_direct2d();
-
-    private:
         overlay_config_t m_overlay_config{};
         HINSTANCE m_instance_handle{};
         HWND m_window_handle{};
 
-        ID2D1Factory* m_d2d_factory{};
-        IDWriteFactory* m_dwrite_factory{};
-        ID2D1HwndRenderTarget* m_render_target{};
-
-        IDWriteTextFormat* m_verdana_regular{};
-        IDWriteTextFormat* m_verdana_bold{};
-
-        ID2D1SolidColorBrush* m_brush{};
+        direct2d_resources_t m_direct2d{};
 
         bool m_is_initialized{};
         bool m_is_running{};

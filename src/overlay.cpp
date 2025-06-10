@@ -1,10 +1,9 @@
 #include "overlay_framework/overlay.hpp"
 
+#include <chrono>
+
 #include <fmt/core.h>
 
-#include "utility.hpp"
-
-#include <chrono>
 
 namespace overlay_framework {
     overlay_t::overlay_t(const overlay_config_t& config) : m_overlay_config(config) {
@@ -85,12 +84,12 @@ namespace overlay_framework {
     LRESULT overlay_t::wnd_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         switch (msg) {
         case WM_SIZE:
-            if (m_render_target) {
+            if (m_direct2d.get_render_target()) {
                 RECT rc;
                 GetClientRect(hWnd, &rc);
 
                 D2D1_SIZE_U size = D2D1::SizeU(rc.right, rc.bottom);
-                m_render_target->Resize(size);
+                m_direct2d.get_render_target()->Resize(size);
 
                 m_width = size.width;
                 m_height = size.height;
@@ -99,12 +98,12 @@ namespace overlay_framework {
             }
             return 0;
         case WM_DESTROY:
-            cleanup_direct2d();
+            m_direct2d.cleanup();
             PostQuitMessage(0);
             return 0;
         case WM_PAINT:
-            if (!m_render_target) {
-                const auto direct2d_initialized = initialize_direct2d(hWnd);
+            if (!m_direct2d.get_render_target()) {
+                const auto direct2d_initialized = m_direct2d.initialize(hWnd, m_overlay_config.vsync);
                 if (!direct2d_initialized) {
                     MessageBoxA(nullptr, direct2d_initialized.error().c_str(), "[Error]", MB_OK);
                 }
@@ -112,14 +111,14 @@ namespace overlay_framework {
 
             const auto start_timestamp = std::chrono::high_resolution_clock::now();
 
-            m_render_target->BeginDraw();
-            m_render_target->Clear(D2D1::ColorF(D2D1::ColorF::Black, 0.f));
+            m_direct2d.get_render_target()->BeginDraw();
+            m_direct2d.get_render_target()->Clear(D2D1::ColorF(D2D1::ColorF::Black, 0.f));
 
             if (m_on_paint_callback) {
                 m_on_paint_callback(this);
             }
 
-            const auto hr = m_render_target->EndDraw();
+            const auto hr = m_direct2d.get_render_target()->EndDraw();
             if (FAILED(hr) || hr == D2DERR_RECREATE_TARGET) {
                 // TODO: Recreate target
                 MessageBoxA(nullptr, "render_target->EndDraw() == D2DERR_RECREATE_TARGET", "[Error]", MB_OK);
@@ -136,120 +135,29 @@ namespace overlay_framework {
         return DefWindowProc(hWnd, msg, wParam, lParam);
     }
 
-    std::expected<void, std::string> overlay_t::initialize_direct2d(HWND hwnd) {
-        HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &m_d2d_factory);
-        if (FAILED(hr)) {
-            return std::unexpected("D2D1CreateFactory failed");
-        }
-
-#pragma clang diagnostic ignored "-Wlanguage-extension-token"
-        hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
-                                 reinterpret_cast<IUnknown**>(&m_dwrite_factory));
-#pragma clang diagnostic warning "-Wlanguage-extension-token"
-        if (FAILED(hr)) {
-            return std::unexpected("DWriteCreateFactory failed");
-        }
-
-        RECT rc{};
-        if (!GetClientRect(hwnd, &rc)) {
-            return std::unexpected(fmt::format("Couldn't retrieve client rect: 0x{:X}", GetLastError()));
-        }
-        D2D1_SIZE_U size = D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top);
-
-        const auto direct2d_vsync =
-            m_overlay_config.vsync ? D2D1_PRESENT_OPTIONS_NONE : D2D1_PRESENT_OPTIONS_IMMEDIATELY;
-
-        hr = m_d2d_factory->CreateHwndRenderTarget(
-            D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT,
-                                         D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED)),
-            D2D1::HwndRenderTargetProperties(hwnd, size, direct2d_vsync), &m_render_target);
-        if (FAILED(hr)) {
-            return std::unexpected(fmt::format("CreateHwndRenderTarget failed: 0x{:X}", hr));
-        }
-
-        const D2D1_COLOR_F color = D2D1::ColorF(1.f, 1.f, 1.f, 1.f);
-        hr = m_render_target->CreateSolidColorBrush(color, &m_brush);
-        if (FAILED(hr)) {
-            return std::unexpected("CreateSolidColorBrush failed");
-        }
-
-        hr =
-            m_dwrite_factory->CreateTextFormat(L"Verdana Bold", NULL, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
-                                               DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"en-us", &m_verdana_bold);
-        if (FAILED(hr)) {
-            return std::unexpected(fmt::format("CreateTextFormat failed: 0x{:X}", GetLastError()));
-        }
-
-        hr = m_dwrite_factory->CreateTextFormat(L"Verdana", NULL, DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STYLE_NORMAL,
-                                                DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"en-us", &m_verdana_regular);
-        if (FAILED(hr)) {
-            return std::unexpected(fmt::format("CreateTextFormat failed: 0x{:X}", GetLastError()));
-        }
-
-        hr = m_verdana_bold->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        if (FAILED(hr)) {
-            return std::unexpected("SetTextAlignment failed");
-        }
-
-        hr = m_verdana_regular->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        if (FAILED(hr)) {
-            return std::unexpected("SetTextAlignment failed");
-        }
-
-        // hr =
-        // m_verdana_bold->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        // if (FAILED(hr)) {
-        //     return std::unexpected("SetParagraphAlignment failed");
-        // }
-
-        // m_render_target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-        m_render_target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_ALIASED);
-        m_render_target->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
-
-        return {};
-    }
-
-    void overlay_t::cleanup_direct2d() {
-        using namespace utility;
-        safe_release(&m_render_target);
-        safe_release(&m_d2d_factory);
-        safe_release(&m_brush);
-        safe_release(&m_dwrite_factory);
-        safe_release(&m_verdana_regular);
-        safe_release(&m_verdana_bold);
-    }
-
     void overlay_t::draw_rect_filled(int x, int y, int w, int h, int r, int g, int b, int a) {
-        const auto old_color = m_brush->GetColor();
+        const auto old_color = m_direct2d.get_brush()->GetColor();
 
-        m_brush->SetColor(D2D1_COLOR_F{ r / 255.f, g / 255.f, b / 255.f, a / 255.f });
+        m_direct2d.get_brush()->SetColor(D2D1_COLOR_F{ r / 255.f, g / 255.f, b / 255.f, a / 255.f });
 
-        m_render_target->FillRectangle(D2D1_RECT_F{ (float)x, (float)y, (float)x + (float)w, (float)y + (float)h },
-                                       m_brush);
+        m_direct2d.get_render_target()->FillRectangle(D2D1_RECT_F{ (float)x, (float)y, (float)x + (float)w, (float)y + (float)h },
+                                       m_direct2d.get_brush());
 
-        m_brush->SetColor(old_color);
+        m_direct2d.get_brush()->SetColor(old_color);
     }
 
     void overlay_t::draw_rect_filled(const math::vec2_t<int32_t>& position, const math::vec2_t<int32_t>& size,
                                      const color_t& color) {
-        const auto old_color = m_brush->GetColor();
+        const auto old_color = m_direct2d.get_brush()->GetColor();
 
-        m_brush->SetColor(color.to_direct2d());
+        m_direct2d.get_brush()->SetColor(color.to_direct2d());
 
-        m_render_target->FillRectangle(D2D1_RECT_F{ static_cast<float>(position.x), static_cast<float>(position.y),
+        m_direct2d.get_render_target()->FillRectangle(D2D1_RECT_F{ static_cast<float>(position.x), static_cast<float>(position.y),
                                                     static_cast<float>(position.x) + static_cast<float>(size.x),
                                                     static_cast<float>(position.y) + static_cast<float>(size.y) },
-                                       m_brush);
+                                       m_direct2d.get_brush());
 
-        m_brush->SetColor(old_color);
-    }
-
-    IDWriteTextFormat* overlay_t::get_verdana_regular() {
-        return m_verdana_regular;
-    }
-
-    IDWriteTextFormat* overlay_t::get_verdana_bold() {
-        return m_verdana_bold;
+        m_direct2d.get_brush()->SetColor(old_color);
     }
 
     uint32_t overlay_t::get_width() const {
@@ -270,14 +178,14 @@ namespace overlay_framework {
 
     void overlay_t::draw_text(const std::string& text, int x, int y, int r, int g, int b, int a, bool centered,
                               IDWriteTextFormat* font) {
-        const auto old_color = m_brush->GetColor();
+        const auto old_color = m_direct2d.get_brush()->GetColor();
 
-        m_brush->SetColor(D2D1_COLOR_F{ (float)r / 255.f, (float)g / 255.f, (float)b / 255.f, (float)a / 255.f });
+        m_direct2d.get_brush()->SetColor(D2D1_COLOR_F{ (float)r / 255.f, (float)g / 255.f, (float)b / 255.f, (float)a / 255.f });
 
         std::wstring wstr(text.begin(), text.end());
 
         if (!font) {
-            font = get_verdana_bold();
+            font = m_direct2d.get_verdana_bold();
         }
 
         D2D1_RECT_F rect;
@@ -285,7 +193,7 @@ namespace overlay_framework {
         if (centered) {
             IDWriteTextLayout* text_layout = nullptr;
             HRESULT hr =
-                m_dwrite_factory->CreateTextLayout(wstr.c_str(), wstr.size(), font, m_width, m_height, &text_layout);
+                m_direct2d.get_dwrite_factory()->CreateTextLayout(wstr.c_str(), wstr.size(), font, m_width, m_height, &text_layout);
 
             if (SUCCEEDED(hr)) {
                 DWRITE_TEXT_METRICS metrics;
@@ -300,8 +208,8 @@ namespace overlay_framework {
             rect = { float(x), float(y), 2560, 1440 };
         }
 
-        m_render_target->DrawTextW(wstr.c_str(), wstr.size(), font, rect, m_brush);
+        m_direct2d.get_render_target()->DrawTextW(wstr.c_str(), wstr.size(), font, rect, m_direct2d.get_brush());
 
-        m_brush->SetColor(old_color);
+        m_direct2d.get_brush()->SetColor(old_color);
     }
 } // namespace overlay_framework

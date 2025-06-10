@@ -22,7 +22,8 @@ int main() {
             const auto offset = 25;
 
             ov->draw_text("hi :3", pt.x - offset, pt.y - offset, 255, 255, 255, 255, true);
-            ov->draw_text("bye :(", pt.x + offset, pt.y + offset, 255, 255, 255, 255, true, ov->get_verdana_regular());
+            // TODO: bring back support for choosing fonts
+            ov->draw_text("bye :(", pt.x + offset, pt.y + offset, 255, 255, 255, 255, true);
         }
 
         // draw frame time
