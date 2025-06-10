@@ -19,3 +19,5 @@ AllowShortEnumsOnASingleLine: false
 KeepEmptyLinesAtEOF: false
 
 AllowShortLambdasOnASingleLine: Empty
+
+AlwaysBreakTemplateDeclarations: Yes
