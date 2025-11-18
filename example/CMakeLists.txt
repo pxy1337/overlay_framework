@@ -13,5 +13,5 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
         VS_STARTUP_PROJECT overlay_example)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(overlay_example PUBLIC
-        -Wall -Wextra -Werror -pedantic -Wno-unused-parameter)
+        -Wall -Wextra -Werror -pedantic -Wno-unused-parameter -Wno-unused-variable)
 endif()
