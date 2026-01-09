@@ -16,6 +16,6 @@ target_compile_definitions(overlay PUBLIC
 if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     target_compile_options(overlay PRIVATE /W4 /WX /MP)
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_compile_options(overlay PUBLIC
+    target_compile_options(overlay PRIVATE
         -Wall -Wextra -Werror -pedantic -Wno-unused-parameter)
 endif()
