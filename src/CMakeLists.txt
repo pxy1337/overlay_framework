@@ -10,7 +10,7 @@ target_compile_features(overlay PUBLIC cxx_std_23)
 set_target_properties(overlay PROPERTIES
     CXX_EXTENSIONS OFF
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-target_compile_definitions(overlay PUBLIC
+target_compile_definitions(overlay PRIVATE
     UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
